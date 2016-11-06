@@ -1,4 +1,6 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
+from itertools import chain
 
 import pandas
 from flask import Flask, jsonify, request
@@ -26,10 +28,17 @@ def hist():
     to_loc = request.args['to_loc']
     our_train = find_train(from_loc, to_loc, from_datetime, to_datetime)
     maybe_delayed, maybe_delayed_loc_map = station_report(our_train, from_loc, to_loc, False, True)
-    maybe_delayed.set_value(0, 'actual_ta', our_train[0]['gbtt_ptd'])
-    return jsonify(list(dict(actual_delta=str(i.a_delta), loc=str(i.location), date=str(i.date_of_service),
-                             reason=str(i.late_canc_reason), actual_ta=str(i.actual_ta)) for i in
-                        maybe_delayed.itertuples()))
+    if maybe_delayed.empty:
+        return jsonify(list())
+    maybe_delayed.set_value(0, 'actual_ta', our_train[0][1])
+    maybe_delayed.groupby(['gad', 'location']).aggregate(lambda x: tuple(x))
+
+    delta = defaultdict(list)
+    maybe_delayed = maybe_delayed.sort(['rid', 'loc_index'])
+    for r in maybe_delayed.itertuples():
+        delta[r.date_of_service].append(str(r.a_delta))
+    return jsonify(dict(dep=our_train[0][1], arrive=our_train[0][2], map=maybe_delayed_loc_map,
+                        delta=delta))
 
 
 @app.route('/predict')
